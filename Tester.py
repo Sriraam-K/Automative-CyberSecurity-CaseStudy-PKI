@@ -135,6 +135,7 @@ class Tester :
                 # Receive signed response from PKI
                 signed_response = sock.recv(4096)
                 print('Received Challenge Signature\n')
+                print(signed_response, '\n')
 
         return signed_response
 
