@@ -100,6 +100,8 @@ class Tester :
         # Sign the message digest with tester's private key
         signature = sign_message_digest(self.PR_t, message_digest)
 
+        signed_response = b'fail'
+
         # Establish connection with PKI
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.bind((Tester_HOST, Tester_PORT))
@@ -123,19 +125,18 @@ class Tester :
                 print(e)
                 return b'fail'
                 
-            msg = sock.recv(40).decode()
-            print(msg)
-            if msg == 'Send Details for 2nd step Authentication':    
-                # Send signed message digest and tester's certificate for authentication
-                print('Sending details for Authentication\n')
-                sock.sendall(challenge.encode())
-                sock.sendall(signature)
-                sock.sendall(self.Digital_certificate)
+            msg = sock.recv(41).decode()
+            print(msg)    
+            # Send signed message digest and tester's certificate for authentication
+            print('Sending details for Authentication\n')
+            sock.sendall(challenge.encode('utf-8'))
+            sock.sendall(signature)
+            sock.sendall(self.Digital_certificate)
 
-                # Receive signed response from PKI
-                signed_response = sock.recv(4096)
-                print('Received Challenge Signature\n')
-                print(signed_response, '\n')
+            # Receive signed response from PKI
+            signed_response = sock.recv(4096)
+            print('Received Challenge Signature\n')
+            print(signed_response, '\n')
 
         return signed_response
 
