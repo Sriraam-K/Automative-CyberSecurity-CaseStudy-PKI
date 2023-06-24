@@ -20,7 +20,10 @@ def generate_serial_number():
     return int(number)
 
 # Function to create a digital certificate signing request (CSR)
-def create_csr(private_key):
+def create_csr(private_key_pem):
+    # Load user's private key
+    private_key = serialization.load_pem_private_key(private_key_pem, password=None)
+    
     subject = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, input("Country Name (2 letter code): ")),
         x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, input("State or Province Name: ")),
@@ -40,9 +43,12 @@ def create_csr(private_key):
     return csr_pem
 
 # Function to build a digital certificate from a CSR
-def build_certificate(csr_pem, pki_private_key):
+def build_certificate(csr_pem, pki_private_key_pem):
     # Load the CSR
     csr = x509.load_pem_x509_csr(csr_pem, default_backend())
+
+    #  Load PKI's private key
+    pki_private_key = serialization.load_pem_private_key(pki_private_key_pem, password=None)
 
     # Create the certificate builder
     builder = CertificateBuilder()
