@@ -1,114 +1,142 @@
 import socket
 import hashlib
+from IPv4_Ports import *
 from RSA import generate_key_pair, sign_message_digest, verify_message_digest, verify_certificate
 from cryptography.hazmat.primitives import serialization
 from X509 import build_certificate, certificate_from_pem, pem_from_cert
 
-def generate_key_files():
-    private_key, public_key = generate_key_pair()
+class PKI:
+    def __init__(self):
+        self.PR_pki = None
+        self.PU_pki = None
+        self.Issued_certificates = []
+
     
-    # Save private key and public key to a file
-    with open('pki_private_key.pem', 'wb') as file:
-        file.write(private_key)
-    with open('pki_public_key.pem', 'wb') as file:
-        file.write(public_key) 
+    def generate_key_files(self):
+        self.PR_pki, self.PU_pki = generate_key_pair()
+        
+        # Save private key and public key to a file
+        with open('pki_private_key.pem', 'wb') as file:
+            file.write(self.PR_pki)
+        with open('pki_public_key.pem', 'wb') as file:
+            file.write(self.PU_pki) 
 
-    print("PKI's Private Key\n\n", private_key.decode())
-    print("PKI's Public Key\n\n", public_key.decode())   
+        print("PKI's Private Key\n\n", self.PR_pki.decode())
+        print("PKI's Public Key\n\n", self.PU_pki.decode())
 
 
-def issue_certificates():
-    # Create a socket to listen for CSR requests
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-        server_socket.bind(('localhost', 8000))
-        server_socket.listen(2)
-        count = 0       #Temporary
-
-        while True:
-            # Accept connection from Tester or ECU
-            client_socket, address = server_socket.accept()
-            print(f'New connection from {address}\n')
-
-            # Receive CSR from Tester or ECU
-            csr_pem = client_socket.recv(4096)
-
+    def load_resources(self):
+        try:
             # Load PKI's private key
             with open('pki_private_key.pem', 'rb') as file:
-                pki_private_key = serialization.load_pem_private_key(
-                    file.read(),
-                    password=None 
-                )
-
-            # Build and Sign the certificate using PKI's private key
-            signed_certificate = build_certificate(csr_pem, pki_private_key)
+                self.PR_pki = file.read()
             # Load PKI's public key
             with open('pki_public_key.pem', 'rb') as file:
-                pki_public_key = file.read()
+                self.PU_pki = file.read()
+            # Load Issued digital certificates
+            with open('issued_certificates.pem', 'rb') as file:
+                lines = file.readlines()
+                current_cert = b''
+                for line in lines:
+                    if line.strip():  # Skip empty lines
+                        current_cert += line
+                        if line.startswith(b'-----END CERTIFICATE-----'):
+                            self.Issued_certificates.append(current_cert)
+                            current_cert = b''
 
-            # Send the signed certificate and PKI's public key to the requester
-            client_socket.sendall(signed_certificate)
-            client_socket.sendall(pki_public_key)
-            print('Received valid CSR and Issued Certificate\n')
-
-            # Save the issued certificate to a file
-            with open('issued_certificates.pem', 'ab') as file:
-                file.write(signed_certificate + b'\n')
-
-            # Close the connection
-            client_socket.close()
-            count+=1            #Temporary
-            if count == 2:
-                print('Finished with issuing certificates for the day!')
-                break
-
-        server_socket.close()    
+            print('All resources loaded successfully and PKI server ready to run....')
+        except:
+            print('No resources found: Keys generating....')
+            self.generate_key_files() 
 
 
-def verify_tester(auth_data):
-    challenge = auth_data[0]
-    signature = auth_data[1]
-    tester_certificate = auth_data[2]
-    message_digest = hashlib.sha512(challenge.encode('utf-8')).digest()
+    def issue_certificates(self, client_socket):
+        # Receive CSR from Tester or ECU
+        csr_pem = client_socket.recv(4096)
 
-    # Load PKI's public key
-    with open('pki_public_key.pem', 'rb') as file:
-        pki_public_key = file.read()
+        # Create a digital certificate for CSR received
+        signed_certificate = build_certificate(csr_pem, self.PR_pki)
 
-    authentic_cert = verify_certificate(pki_public_key, tester_certificate)    
+        # Send the signed certificate and PKI's public key to the requester
+        client_socket.sendall(signed_certificate)
+        client_socket.sendall(self.PU_pki)
+        print('Received valid CSR and Issued Certificate\n')
 
-    if authentic_cert == True:
-        # Load tester's public key from certificate
-        tester_public_key = certificate_from_pem(tester_certificate).public_key().public_bytes(
-                                encoding=serialization.Encoding.PEM,
-                                format=serialization.PublicFormat.SubjectPublicKeyInfo
-                            )
+        # Save the issued certificate to a file
+        with open('issued_certificates.pem', 'ab') as file:
+            file.write(signed_certificate + b'\n')
 
-        # Verify the signed response using tester's public key
-        response_digest = verify_message_digest(tester_public_key, message_digest, signature)
+        self.Issued_certificates.append(signed_certificate)
 
-        if response_digest == True:
-            print('Tester Authentication Successfull\n')
-            # Load PKI's private key
-            with open('pki_private_key.pem', 'rb') as file:
-                pki_private_key = file.read()
-            # Sign the message digest using PKI's private key
-            signature = sign_message_digest(pki_private_key, message_digest)
-            # Send the signed response to the tester
-            return signature
+    
+    def one_step_authentication(self, client_socket):
+        credentials = {}
+        with open("user_credentials.txt", "r") as file:
+            for line in file:
+                username, password = line.strip().split(":")
+                credentials[username] = password
+
+        # Receive username and password from User 
+        client_socket.send(b'Enter Username:')
+        username = client_socket.recv(5).decode()
+        client_socket.send(b'Enter Password:')
+        password = client_socket.recv(8).decode()
+
+        # Validate the credentials
+        if username in credentials and credentials[username] == password:
+            print('1st step Authentication Successful!')
+            client_socket.send(b'1st step Authentication Successful!!')
+            return True
+        
         else:
-            print('Warning: Unverified Tester\n')
+            print('1st step Authentication Failed.....Aborting connection!')
+            client_socket.send(b'1st step Authentication Failed......')
+            return False
+                   
+
+    def two_step_authentication(self, client_socket):
+
+        if self.one_step_authentication(client_socket) == True:
+            client_socket.send(b'Send Details for 2nd step Authentication')
+            challenge = client_socket.recv(256).decode('utf-8')
+            signature = client_socket.recv(256)
+            tester_certificate_pem = client_socket.recv(2048)
+            message_digest = hashlib.sha512(challenge.encode('utf-8')).digest()
+
+            print("Received data for Tester's 2nd step authentication\n")
+
+            authentic_cert = verify_certificate(self.PU_pki, tester_certificate_pem)    
+
+            if authentic_cert == True:
+                # Load tester's public key from certificate
+                tester_public_key = certificate_from_pem(tester_certificate_pem).public_key().public_bytes(
+                                        encoding=serialization.Encoding.PEM,
+                                        format=serialization.PublicFormat.SubjectPublicKeyInfo
+                                    )
+
+                # Verify the signed response using tester's public key
+                response_digest = verify_message_digest(tester_public_key, message_digest, signature)
+
+                if response_digest == True:
+                    print('Tester Authentication Successfull\n')
+                    # Sign the message digest using PKI's private key
+                    signature = sign_message_digest(self.PR_pki, message_digest)
+                    # Send the signed response to the tester
+                    return signature
+                else:
+                    print('Warning: Unverified Tester\n')
+
+        return b'fail'
 
             
 if __name__ == '__main__':
-    # Generate key files
-    generate_key_files()
+    Trust = PKI()
 
-    # Issue certificates
-    issue_certificates()
+    # Load PKI resources once it starts  
+    Trust.load_resources()
 
-    # Listen for access requests and authenticate Tester
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-        server_socket.bind(('localhost', 8000))
+        server_socket.bind((PKI_HOST, PKI_PORT))
         server_socket.listen(2)
 
         while True:
@@ -116,16 +144,22 @@ if __name__ == '__main__':
             client_socket, address = server_socket.accept()
             print(f'New connection from {address}\n')
 
-            # Receive challenge string and tester's certificate
-            challenge = client_socket.recv(256)
-            signature = client_socket.recv(256)
-            tester_certificate = client_socket.recv(2048)
-            auth_data = (challenge.decode('utf-8'), signature, tester_certificate)
-            print("Received data for Tester's authentication\n")
+            service_request = client_socket.recv(2).decode()
 
-            # Verify the tester
-            signature = verify_tester(auth_data)
-            client_socket.sendall(signature)
+            match service_request:
+                case 'IC': # Issue Digital Certificate
+                    Trust.issue_certificates(client_socket)
 
-            # Close the connection
-            client_socket.close()
+                case 'VT': # Verify/Authenticate Tester
+                    # Verify the tester
+                    signature = Trust.two_step_authentication(client_socket)
+                    if signature != b'fail':
+                        client_socket.sendall(signature)
+
+                case _:
+                    print('Unregistered/Unavailable service')
+
+            try:
+                client_socket.close()
+            except:
+                pass
