@@ -1,6 +1,7 @@
 import socket
 import random
 import hashlib
+from IPv4_Ports import *
 from cryptography.hazmat.primitives import serialization
 from RSA import generate_key_pair, verify_message_digest
 from X509 import create_csr, certificate_from_pem , display_DigiCert
@@ -26,19 +27,14 @@ class ECU:
 
 
     def apply_for_certificate(self):
-        with open('ecu_private_key.pem', 'rb') as file:
-            private_key = serialization.load_pem_private_key(
-                file.read(),
-                password=None 
-            )
 
-        csr_pem = create_csr(private_key)
+        csr_pem = create_csr(self.PR_ecu)
 
         # Establish connection with PKI
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as PKI_sock:
-            PKI_sock.connect(('localhost', 8000))
+            PKI_sock.connect((PKI_HOST, PKI_PORT))
             # Send CSR to PKI
-            PKI_sock.send(b'CSR')
+            PKI_sock.send(b'IC')
             PKI_sock.sendall(csr_pem)
             # Receive signed certificate and PKI's public key
             self.Digital_certificate = PKI_sock.recv(4096)
@@ -56,17 +52,37 @@ class ECU:
         display_DigiCert(self.Digital_certificate)
 
 
+    def load_resources(self):
+        try:
+            # Load ECU's private key
+            with open('ecu_private_key.pem', 'rb') as file:
+                self.PR_t = file.read()
+            # Load ECU's public key
+            with open('ecu_public_key.pem', 'rb') as file:
+                self.PU_t = file.read()
+            # Load ECU's digital certificate
+            with open('ecu_certificate.pem', 'rb') as file:
+                self.Digital_certificate = file.read()
+            # Load PKI's public key
+            with open('pki_public_key.pem', 'rb') as file:
+                self.PU_pki = file.read()
+
+            print('All Resources loaded and device ready to function...')
+        except:
+            print('No resources found: Keys generating....')
+            self.generate_key_files() 
+            print('Applying for Digital Certificate')
+            self.apply_for_certificate()
+
+
     def verify_response(self, signed_response):
-        # Load ECU's public key
-        with open('pki_public_key.pem', 'rb') as file:
-            pki_public_key = file.read()
 
         # Load the stored challenge hash
         with open('challenge.txt', 'rb') as file:
             stored_digest = file.read()    
 
-        # Verify the signed response using ECU's public key
-        response_digest = verify_message_digest(pki_public_key, stored_digest, signed_response)
+        # Verify the signed response using PKI's public key
+        response_digest = verify_message_digest(self.PU_pki, stored_digest, signed_response)
         
         # Compare the received response digest with the stored digest
         if response_digest == True:
@@ -78,14 +94,11 @@ class ECU:
         
     def activate_ecu(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind(('localhost', 9000))
+            sock.bind((ECU_HOST, ECU_PORT))
             sock.listen(2)
 
-            # Generate key files
-            self.generate_key_files()
-
-            # Apply for certificate
-            self.apply_for_certificate()
+            # Load resources
+            self.load_resources()
 
             print('Listening for Service Requests from Tester(s)\n')
 
@@ -131,4 +144,3 @@ if __name__ == '__main__':
     
     # Activate the ECU to start functioning
     ADAS.activate_ecu()
-        
