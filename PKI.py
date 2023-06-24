@@ -85,11 +85,11 @@ class PKI:
         # Validate the credentials
         if username in credentials and credentials[username] == password:
             print('1st step Authentication Successful!')
-            client_socket.send(b'1st step Authentication Successful!!')
+            client_socket.send(b'1st step Authentication Successful!!\n')
             return True
         
         else:
-            print('1st step Authentication Failed.....Aborting connection!')
+            print('1st step Authentication Failed.....Aborting connection!\n')
             client_socket.send(b'1st step Authentication Failed......')
             return False
                    
@@ -97,7 +97,7 @@ class PKI:
     def two_step_authentication(self, client_socket):
 
         if self.one_step_authentication(client_socket) == True:
-            client_socket.send(b'Send Details for 2nd step Authentication')
+            client_socket.sendall(b'Send Details for 2nd step Authentication')
             challenge = client_socket.recv(256).decode('utf-8')
             signature = client_socket.recv(256)
             tester_certificate_pem = client_socket.recv(2048)
@@ -153,11 +153,11 @@ if __name__ == '__main__':
                 case 'VT': # Verify/Authenticate Tester
                     # Verify the tester
                     signature = Trust.two_step_authentication(client_socket)
-                    if signature != b'fail':
-                        client_socket.sendall(signature)
+                    # if signature != b'fail':
+                    client_socket.sendall(signature)
 
                 case _:
-                    print('Unregistered/Unavailable service')
+                    print('Unregistered/Unavailable service\n')
 
             try:
                 client_socket.close()
